@@ -26,7 +26,7 @@ class Program
         string destinoUrl = Environment.GetEnvironmentVariable("DESTINO_URL");
         string projetoDestino = Environment.GetEnvironmentVariable("PROJETO_DESTINO");
         int idWorkItemOrigem = int.Parse(Environment.GetEnvironmentVariable("ID_WORK_ITEM_ORIGEM"));
-        int idPbiDestino = int.Parse(Environment.GetEnvironmentVariable("ID_PBI_DESTINO"));
+        //int idPbiDestino = int.Parse(Environment.GetEnvironmentVariable("ID_PBI_DESTINO"));
         string patOrigem = Environment.GetEnvironmentVariable("PAT_ORIGEM");
         string patDestino = Environment.GetEnvironmentVariable("PAT_DESTINO");
         string iterationPath = Environment.GetEnvironmentVariable("ITERATION_PATH");
@@ -35,6 +35,45 @@ class Program
 
 
         var workItem = await ObterWorkItem(origemUrl, patOrigem, idWorkItemOrigem);
+
+        // Obtém o ID da US associada à task
+        var relations = workItem["relations"];
+        int idUS = 0;
+        if (relations != null)
+        {
+            foreach (var relation in relations)
+            {
+                var rel = relation["rel"]?.ToString();
+                var url = relation["url"]?.ToString();
+                if (rel == "System.LinkTypes.Hierarchy-Reverse" && url.Contains("/workItems/"))
+                {
+                    var idStr = url.Split("/").Last();
+                    idUS = int.Parse(idStr);
+                    break;
+                }
+            }
+        }
+
+        if (idUS == 0)
+        {
+            Console.WriteLine("Não foi possível encontrar a US associada.");
+            return;
+        }
+
+        var usWorkItem = await ObterWorkItem(origemUrl, patOrigem, idUS);
+        string tituloUS = usWorkItem["fields"]["System.Title"]?.ToString();
+
+        //string tituloPbiEsperado = $"{idUS}-{tituloUS}";
+        string tituloPbiEsperado = idUS.ToString();
+
+        int idPbiDestino = await BuscarPbiDestino(destinoUrl, patDestino, projetoDestino, tituloPbiEsperado);
+        if (idPbiDestino == 0)
+        {
+            Console.WriteLine("PBI correspondente não encontrado no destino.");
+            return;
+        }
+
+
 
         // LEITURA DOS DADOS
         string titulo = workItem["fields"]["System.Title"]?.ToString();
@@ -50,12 +89,12 @@ class Program
         string tipoTask = "Atendimento ao cliente"; // <- Altere conforme desejado
 
         // Criação da nova task
-        await CriarTaskDestino(destinoUrl, patDestino, projetoDestino,
+        int idNovaTask = await CriarTaskDestino(destinoUrl, patDestino, projetoDestino,
             titulo, descricao, horasEstimadas, horasRestantes, horasCompletadas,
             prioridade, tipoTask, idPbiDestino,
             iterationPath, atividade, responsavel, idWorkItemOrigem);
 
-        Console.WriteLine("Task criada com sucesso!");
+        Console.WriteLine($"Task criada com sucesso! ID: {idNovaTask.ToString()}");
     }
 
     static async Task<JObject> ObterWorkItem(string baseUrl, string pat, int id)
@@ -65,13 +104,13 @@ class Program
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
             Convert.ToBase64String(Encoding.ASCII.GetBytes($":{pat}")));
 
-        var response = await client.GetAsync($"_apis/wit/workitems/{id}?api-version=6.0");
+        var response = await client.GetAsync($"_apis/wit/workitems/{id}?$expand=relations&api-version=6.0");
         response.EnsureSuccessStatusCode();
         string result = await response.Content.ReadAsStringAsync();
         return JObject.Parse(result);
     }
 
-    static async Task CriarTaskDestino(
+    static async Task<int> CriarTaskDestino(
         string baseUrl,
         string pat,
         string projeto,
@@ -131,5 +170,41 @@ class Program
         }
         response.EnsureSuccessStatusCode();
 
+        var jsonResponse = JObject.Parse(responseContent);
+        return (int)jsonResponse["id"];
+
     }
+
+    static async Task<int> BuscarPbiDestino(string baseUrl, string pat, string projeto, string tituloEsperado)
+    {
+        using var client = new HttpClient();
+        client.BaseAddress = new Uri(baseUrl);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($":{pat}")));
+
+        var wiql = new
+        {
+            query = $"SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '{projeto}' AND [System.WorkItemType] = 'Product Backlog Item' AND [System.Title] CONTAINS '{tituloEsperado}'"
+        };
+
+        var content = new StringContent(JObject.FromObject(wiql).ToString(), Encoding.UTF8, "application/json");
+        var response = await client.PostAsync("_apis/wit/wiql?api-version=6.0", content);
+        var responseContent = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"Erro ao buscar PBI no destino. {response.StatusCode}: {responseContent}");
+            return 0;
+        }
+
+        var json = JObject.Parse(responseContent);
+        var workItems = json["workItems"] as JArray;
+        if (workItems != null && workItems.Count > 0)
+        {
+            return (int)workItems[0]["id"];
+        }
+
+        return 0;
+    }
+
 }
