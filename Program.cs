@@ -67,11 +67,60 @@ class Program
         string tituloPbiEsperado = idUS.ToString();
 
         int idPbiDestino = await BuscarPbiDestino(destinoUrl, patDestino, projetoDestino, tituloPbiEsperado);
+
         if (idPbiDestino == 0)
         {
-            Console.WriteLine("PBI correspondente não encontrado no destino.");
-            return;
+            string responsavelUSOrigem = usWorkItem["fields"]["System.AssignedTo"]?.ToString();
+            string tituloCompleto = $"{idUS} - {tituloUS}";
+            string descricaoUS = usWorkItem["fields"]["System.Description"]?.ToString();
+            string criteriosAceite = usWorkItem["fields"]["Microsoft.VSTS.Common.AcceptanceCriteria"]?.ToString();
+            string horasEstimadasUS = usWorkItem["fields"]["Microsoft.VSTS.Scheduling.OriginalEstimate"]?.ToString();
+
+            double.TryParse(horasEstimadasUS, out double horas);
+            string complexidade;
+
+            if (horas < 8)
+                complexidade = "Muito Simples";
+            else if (horas < 16)
+                complexidade = "Simples";
+            else
+                complexidade = "Complexa";
+
+
+            if (!string.IsNullOrEmpty(responsavelUSOrigem) &&
+                responsavelUSOrigem.Contains(responsavel, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("PBI não encontrado. Criando novo PBI no destino...");
+
+                idPbiDestino = await CriarPbiDestino(
+                    destinoUrl,
+                    patDestino,
+                    projetoDestino,
+                    tituloCompleto,
+                    descricaoUS,
+                    criteriosAceite,
+                    horasEstimadasUS,
+                    responsavel,
+                    iterationPath,
+                    complexidade
+                );
+
+                if (idPbiDestino == 0)
+                {
+                    Console.WriteLine("Erro ao criar o PBI.");
+                    return;
+                }
+
+                Console.WriteLine($"Novo PBI criado com ID: {idPbiDestino}");
+            }
+            else
+            {
+                Console.WriteLine("PBI não encontrado e a US origem não está atribuída ao usuário atual. Nenhuma ação será tomada.");
+                return;
+            }
         }
+
+
 
 
 
@@ -96,6 +145,54 @@ class Program
 
         Console.WriteLine($"Task criada com sucesso! ID: {idNovaTask.ToString()}");
     }
+
+    static async Task<int> CriarPbiDestino(
+    string baseUrl,
+    string pat,
+    string projeto,
+    string titulo,
+    string descricao,
+    string criteriosAceite,
+    string horasEstimadas,
+    string responsavel,
+    string iterationPath,
+    string complexidade)
+    {
+        using var client = new HttpClient();
+        client.BaseAddress = new Uri(baseUrl);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($":{pat}")));
+
+        var json = new JArray
+            {
+                new JObject { { "op", "add" }, { "path", "/fields/System.Title" }, { "value", titulo } },
+                new JObject { { "op", "add" }, { "path", "/fields/System.Description" }, { "value", descricao } },
+                new JObject { { "op", "add" }, { "path", "/fields/Microsoft.VSTS.Common.AcceptanceCriteria" }, { "value", criteriosAceite } },
+                new JObject { { "op", "add" }, { "path", "/fields/System.AssignedTo" }, { "value", responsavel } },
+                new JObject { { "op", "add" }, { "path", "/fields/System.IterationPath" }, { "value", iterationPath } },
+                new JObject { { "op", "add" }, { "path", "/fields/Microsoft.VSTS.Scheduling.Estimate" }, { "value", horasEstimadas } },
+                new JObject { { "op", "add" }, { "path", "/fields/Microsoft.VSTS.Scheduling.OriginalEstimate" }, { "value", horasEstimadas } },
+                new JObject { { "op", "add" }, { "path", "/fields/Custom.Complexity" }, { "value", complexidade } },
+            };
+
+        var content = new StringContent(json.ToString(), Encoding.UTF8, "application/json-patch+json");
+
+        var response = await client.PostAsync($"{projeto}/_apis/wit/workitems/$Product%20Backlog%20Item?api-version=6.0", content);
+        var responseContent = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine("Erro ao criar PBI:");
+            Console.WriteLine($"StatusCode: {response.StatusCode}");
+            Console.WriteLine($"Resposta: {responseContent}");
+            return 0;
+        }
+
+        var jsonResponse = JObject.Parse(responseContent);
+        return (int)jsonResponse["id"];
+    }
+
+
 
     static async Task<JObject> ObterWorkItem(string baseUrl, string pat, int id)
     {
