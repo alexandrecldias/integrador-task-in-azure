@@ -4,20 +4,7 @@ using Newtonsoft.Json.Linq;
 
 class Program
 {
-    //// CONFIGURAÇÕES
-    //private static string origemUrl = Environment.GetEnvironmentVariable("ORIGEM_URL");
-    //private static string destinoUrl = Environment.GetEnvironmentVariable("DESTINO_URL");
-    //private static string projetoDestino = Environment.GetEnvironmentVariable("PROJETO_DESTINO");
-    //private static int idWorkItemOrigem = int.Parse(Environment.GetEnvironmentVariable("ID_WORK_ITEM_ORIGEM"));
-    //private static int idPbiDestino = int.Parse(Environment.GetEnvironmentVariable("ID_PBI_DESTINO"));
-
-    //private static string patOrigem = Environment.GetEnvironmentVariable("PAT_ORIGEM");
-    //private static string patDestino = Environment.GetEnvironmentVariable("PAT_DESTINO");
-    //private static string iterationPath = Environment.GetEnvironmentVariable("ITERATION_PATH");
-    //private static string atividade = Environment.GetEnvironmentVariable("ATIVIDADE_TASK");
-    //private static string responsavel = Environment.GetEnvironmentVariable("RESPONSAVEL_TASK");
-
-
+ 
     static async Task Main()
     {
         DotNetEnv.Env.Load("C:\\GITHUB\\IntegradorTaskAzure\\.env"); // Carrega o .env automaticamente
@@ -26,7 +13,6 @@ class Program
         string destinoUrl = Environment.GetEnvironmentVariable("DESTINO_URL");
         string projetoDestino = Environment.GetEnvironmentVariable("PROJETO_DESTINO");
         int idWorkItemOrigem = int.Parse(Environment.GetEnvironmentVariable("ID_WORK_ITEM_ORIGEM"));
-        //int idPbiDestino = int.Parse(Environment.GetEnvironmentVariable("ID_PBI_DESTINO"));
         string patOrigem = Environment.GetEnvironmentVariable("PAT_ORIGEM");
         string patDestino = Environment.GetEnvironmentVariable("PAT_DESTINO");
         string iterationPath = Environment.GetEnvironmentVariable("ITERATION_PATH");
@@ -86,10 +72,10 @@ class Program
             else
                 complexidade = "Complexa";
 
-
-            if (!string.IsNullOrEmpty(responsavelUSOrigem) &&
-                responsavelUSOrigem.Contains(responsavel, StringComparison.OrdinalIgnoreCase))
-            {
+            //comentado temporariamente para analisar o problema posteriormente.
+            //if (!string.IsNullOrEmpty(responsavelUSOrigem) &&
+            //    responsavelUSOrigem.Contains(responsavel, StringComparison.OrdinalIgnoreCase))
+            //{
                 Console.WriteLine("PBI não encontrado. Criando novo PBI no destino...");
 
                 idPbiDestino = await CriarPbiDestino(
@@ -112,12 +98,7 @@ class Program
                 }
 
                 Console.WriteLine($"Novo PBI criado com ID: {idPbiDestino}");
-            }
-            else
-            {
-                Console.WriteLine("PBI não encontrado e a US origem não está atribuída ao usuário atual. Nenhuma ação será tomada.");
-                return;
-            }
+           
         }
 
 
@@ -144,6 +125,7 @@ class Program
             iterationPath, atividade, responsavel, idWorkItemOrigem);
 
         Console.WriteLine($"Task criada com sucesso! ID: {idNovaTask.ToString()}");
+        Console.ReadKey();
     }
 
     static async Task<int> CriarPbiDestino(
@@ -167,11 +149,9 @@ class Program
             {
                 new JObject { { "op", "add" }, { "path", "/fields/System.Title" }, { "value", titulo } },
                 new JObject { { "op", "add" }, { "path", "/fields/System.Description" }, { "value", descricao } },
-                new JObject { { "op", "add" }, { "path", "/fields/Microsoft.VSTS.Common.AcceptanceCriteria" }, { "value", criteriosAceite } },
                 new JObject { { "op", "add" }, { "path", "/fields/System.AssignedTo" }, { "value", responsavel } },
                 new JObject { { "op", "add" }, { "path", "/fields/System.IterationPath" }, { "value", iterationPath } },
-                new JObject { { "op", "add" }, { "path", "/fields/Microsoft.VSTS.Scheduling.Estimate" }, { "value", horasEstimadas } },
-                new JObject { { "op", "add" }, { "path", "/fields/Microsoft.VSTS.Scheduling.OriginalEstimate" }, { "value", horasEstimadas } },
+                new JObject { { "op", "add" }, { "path", "/fields/Microsoft.VSTS.Scheduling.OriginalEstimate" }, { "value", "0" } },
                 new JObject { { "op", "add" }, { "path", "/fields/Custom.Complexity" }, { "value", complexidade } },
             };
 
